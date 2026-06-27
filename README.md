@@ -71,6 +71,7 @@ Customer Query (Natural Language)
 - Node.js installed
 - Python 3.10 or higher
 - Ollama installed and running
+- Create a virtual enviornment to avoid inconsistencies
 
 ### 1. Backend Setup
 
