@@ -1,20 +1,24 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from typing import Dict, Any
+from langchain_core.tools import tool
+from langchain_ollama import ChatOllama
+from langgraph.prebuilt import create_react_agent
+from langchain_core.messages import HumanMessage
+import warnings
 import os
 
-# Modern LangChain & AI Imports
-from langchain_ollama import ChatOllama
-from langchain_core.prompts import PromptTemplate
+# --- RAG Imports ---
 from langchain_community.vectorstores import FAISS
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.document_loaders import TextLoader
 from langchain_text_splitters import CharacterTextSplitter
-from langchain_core.runnables import RunnablePassthrough
-from langchain_core.output_parsers import StrOutputParser
 
-app = FastAPI(title="SBI Branch Deflection Assistant API")
+# Suppress harmless deprecation warnings for a clean terminal during your demo
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+
+app = FastAPI(title="SBI Agentic Workflow API")
 
 app.add_middleware(
     CORSMiddleware,
@@ -30,137 +34,125 @@ class ChatRequest(BaseModel):
     user_id: str = "mock-user-123"
 
 class ChatResponse(BaseModel):
-    intent: str
+    agent_tool: str
     confidence: float
     routing_decision: str
     workflow_state: Dict[str, Any]
     reply: str
 
-class IntentSchema(BaseModel):
-    intent: str = Field(description="Must be exactly one of: statement, card_control, failed_transaction, kyc_help, conversational, general_inquiry, or branch_request")
-    confidence: float = Field(description="Confidence score between 0.0 and 1.0")
 
-# --- AI Engines ---
+# --- Initialize RAG Vector Store ---
+if not os.path.exists("./data/sbi_policies.txt"):
+    os.makedirs("./data", exist_ok=True)
+    with open("./data/sbi_policies.txt", "w") as f:
+        f.write("SBI Savings Interest Rate is 2.70%. Min balance for Metro is 3000 INR. KYC requires PAN, Aadhaar, photos. Video KYC is available.")
 
-class IntentClassifier:
-    def __init__(self):
-        self.llm = ChatOllama(model="llama3", temperature=0).with_structured_output(IntentSchema)
-        self.prompt = PromptTemplate.from_template(
-            """Analyze the user's message and classify their core intent.
-            
-            Categories:
-            - statement: Account history, balance, transaction records.
-            - card_control: Block, freeze, unblock, lost card.
-            - failed_transaction: UPI failure, money deducted.
-            - kyc_help: Update address, document requirements.
-            - conversational: Greetings, 'thank you', 'hello'.
-            - general_inquiry: Anything requiring bank policy info (interest rates, FD tenures, branch hours).
-            - branch_request: Explicitly asking for human help, branch manager, or a complex issue.
-            
-            User Message: {message}"""
-        )
-        self.chain = self.prompt | self.llm
-    
-    def classify(self, text: str) -> dict:
-        try:
-            result = self.chain.invoke({"message": text})
-            return {"intent": result.intent, "confidence": result.confidence}
-        except Exception as e:
-            print(f"Classification Error: {e}")
-            return {"intent": "branch_request", "confidence": 0.2}
+loader = TextLoader("./data/sbi_policies.txt")
+docs = loader.load()
+splitter = CharacterTextSplitter(chunk_size=500, chunk_overlap=50)
+split_docs = splitter.split_documents(docs)
 
-class RAGEngine:
-    def __init__(self):
-        if not os.path.exists("./data/sbi_policies.txt"):
-            os.makedirs("./data", exist_ok=True)
-            with open("./data/sbi_policies.txt", "w") as f:
-                f.write("SBI Savings Interest Rate is 2.70%. Min balance for Metro is 3000 INR. KYC requires PAN, Aadhaar, photos. Video KYC is available.")
-        
-        loader = TextLoader("./data/sbi_policies.txt")
-        docs = loader.load()
-        splitter = CharacterTextSplitter(chunk_size=500, chunk_overlap=50)
-        split_docs = splitter.split_documents(docs)
-        
-        embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
-        self.vectorstore = FAISS.from_documents(split_docs, embeddings)
-        self.retriever = self.vectorstore.as_retriever()
-        
-        self.llm = ChatOllama(model="llama3")
-        self.prompt = PromptTemplate.from_template(
-            "You are an SBI Assistant. Answer the question based strictly on the following context.\n\nContext: {context}\n\nQuestion: {question}"
-        )
+embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+vectorstore = FAISS.from_documents(split_docs, embeddings)
+retriever = vectorstore.as_retriever()
 
-    def format_docs(self, docs):
-        return "\n\n".join(doc.page_content for doc in docs)
 
-    def get_answer(self, query: str):
-        qa_chain = (
-            {"context": self.retriever | self.format_docs, "question": RunnablePassthrough()}
-            | self.prompt
-            | self.llm
-            | StrOutputParser()
-        )
-        answer = qa_chain.invoke(query)
-        return {"result": answer}
+# --- Agentic Tools ---
+@tool
+def generate_statement(query: str) -> dict:
+    """Use this tool when the user wants to download or view their account statement, passbook, or transaction history."""
+    return {"tool": "generate_statement", "routing": "DIGITAL_SELF_SERVE", "workflow": {"type": "form_statement"}}
 
-# --- Logic ---
+@tool
+def freeze_debit_card(query: str) -> dict:
+    """Use this tool when the user wants to block, freeze, or secure their debit/credit card."""
+    return {"tool": "freeze_debit_card", "routing": "DIGITAL_HIGH_AUTH", "workflow": {"type": "secure_toggle", "target": "Debit Card ending 4012"}}
 
-classifier = IntentClassifier()
-rag = RAGEngine()
+@tool
+def start_video_kyc(query: str) -> dict:
+    """Use this tool when the user wants to update their KYC, submit documents, or update their address."""
+    return {"tool": "start_video_kyc", "routing": "DIGITAL_INFORMATIONAL", "workflow": {"type": "checklist"}}
 
+@tool
+def search_sbi_policies(query: str) -> str:
+    """Use this tool to answer general banking inquiries, interest rates, loan details, fees, limits, and bank policies.
+    Pass the user's specific question as the query."""
+    # Retrieve relevant documents from the local text file
+    retrieved_docs = retriever.invoke(query)
+    return "\n\n".join(doc.page_content for doc in retrieved_docs)
+
+@tool
+def escalate_to_branch(query: str) -> dict:
+    """Use this tool when the user explicitly asks for human help, a manager, a branch visit, or if no other tool fits."""
+    return {"tool": "escalate_to_branch", "routing": "BRANCH_ESCALATION", "workflow": {"type": "escalation_ticket"}}
+
+
+# Added the new RAG tool to the agent's toolkit
+tools = [generate_statement, freeze_debit_card, start_video_kyc, search_sbi_policies, escalate_to_branch]
+
+llm = ChatOllama(model="llama3.1", temperature=0)
+
+# Create the autonomous ReAct Agent
+agent_executor = create_react_agent(llm, tools)
+
+# --- API Route ---
 @app.post("/api/chat", response_model=ChatResponse)
 async def process_chat(request: ChatRequest):
-    # 1. Classify
-    classif = classifier.classify(request.message)
-    intent = classif["intent"]
-    confidence = classif["confidence"]
-    
-    # 2. Logic handling
-    reply = ""
-    workflow_data = {}
-    routing = "BRANCH_ESCALATION" # Default
-
-    # AI Safeguard: If AI is confused, safely escalate!
-    if confidence < 0.60 or intent == "branch_request":
-        intent = "branch_request" if confidence >= 0.60 else "complex_query"
-        reply = "This looks like a complex request. I've prepared a summary so our branch staff can assist you quickly without you having to repeat yourself."
+    try:
+        # 1. Let the Agent autonomously process the message
+        state = agent_executor.invoke({"messages": [HumanMessage(content=request.message)]})
+        
+        # 2. Defaults in case the agent is unsure
+        tool_called = "escalate_to_branch"
         routing = "BRANCH_ESCALATION"
-        workflow_data = {"type": "escalation_ticket"}
+        workflow = {"type": "escalation_ticket"}
+        reply = "I have processed your request, but this requires branch assistance."
         
-    elif intent == "conversational":
-        reply = "I'm happy to help! Let me know if you have any questions about SBI services."
-        routing = "DIGITAL_INFORMATIONAL"
+        # 3. Extract the tool decision the AI made from the state history
+        messages = state.get("messages", [])
         
-    elif intent == "general_inquiry":
-        res = rag.get_answer(request.message)
-        reply = res["result"]
-        routing = "DIGITAL_INFORMATIONAL"
+        # Find which tool the agent decided to use
+        for msg in reversed(messages):
+            if hasattr(msg, 'tool_calls') and msg.tool_calls:
+                tool_called = msg.tool_calls[0]['name']
+                break
         
-    else:
-        # Mapping standard digital workflows
-        routing = "DIGITAL_SELF_SERVE" if intent in ["statement", "kyc_help"] else "DIGITAL_HIGH_AUTH"
-        replies = {
-            "statement": "I can help you get your account statement instantly.",
-            "card_control": "I understand you need to manage your debit card.",
-            "failed_transaction": "Failed UPI transactions usually settle within 3 days. Let's check your status.",
-            "kyc_help": "You can update your KYC from home using V-KYC."
-        }
-        reply = replies.get(intent, "I can assist you with that digitally.")
-        
-        workflows = {
-            "statement": {"type": "form_statement"},
-            "card_control": {"type": "secure_toggle", "target": "Debit Card ending 4012"},
-            "kyc_help": {"type": "checklist"}
-        }
-        workflow_data = workflows.get(intent, {})
-
-    return ChatResponse(
-        intent=intent,
-        confidence=confidence,
-        routing_decision=routing,
-        workflow_state=workflow_data,
-        reply=reply
-    )
+        # 4. Map the agent's choice to our frontend UI workflows
+        if tool_called == "generate_statement":
+            routing = "DIGITAL_SELF_SERVE"
+            workflow = {"type": "form_statement"}
+            reply = "I can help you get your account statement instantly."
+            
+        elif tool_called == "freeze_debit_card":
+            routing = "DIGITAL_HIGH_AUTH"
+            workflow = {"type": "secure_toggle", "target": "Debit Card ending 4012"}
+            reply = "I understand you need to manage your debit card security. Let's get that frozen."
+            
+        elif tool_called == "start_video_kyc":
+            routing = "DIGITAL_INFORMATIONAL"
+            workflow = {"type": "checklist"}
+            reply = "You can update your KYC right from home using Video KYC. Here is the checklist."
+            
+        elif tool_called == "search_sbi_policies":
+            routing = "DIGITAL_INFORMATIONAL"
+            workflow = {"type": "policy_info"} 
+            # If it's a policy question, use the Agent's actual generated answer instead of a hardcoded string!
+            reply = messages[-1].content if messages[-1].content else "I found the policy information you requested."
+            
+        elif tool_called == "escalate_to_branch":
+            if messages[-1].content:
+                reply = messages[-1].content
+                
+        return ChatResponse(
+            agent_tool=tool_called,
+            confidence=0.95,
+            routing_decision=routing,
+            workflow_state=workflow,
+            reply=reply
+        )
+    except Exception as e:
+        print(f"Backend Agent Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     import uvicorn

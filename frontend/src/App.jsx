@@ -1,16 +1,15 @@
 import React, { useState } from 'react';
-import { Shield, FileText, Send, Building, ChevronRight, CheckCircle2 } from 'lucide-react';
+import { Shield, FileText, Send, Building, ChevronRight, CheckCircle2, Cpu, Wrench } from 'lucide-react';
 
 export default function App() {
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState([
-    { role: 'assistant', text: 'Welcome to SBI Assist. How can I help you avoid a branch visit today?', type: 'text' }
+    { role: 'assistant', text: 'Welcome to SBI Assist. I am an autonomous agent. How can I help you today?', type: 'text' }
   ]);
   const [pipelineState, setPipelineState] = useState(null);
   const [metrics, setMetrics] = useState({ deflected: 0, escalated: 0 });
   const [isLoading, setIsLoading] = useState(false);
 
-  // Widget Actions (UI interactions)
   const handleWidgetAction = (actionType) => {
     let replyText = "";
     if (actionType === 'download_statement') replyText = "✅ Your E-Statement has been generated successfully and sent to your email.";
@@ -23,7 +22,6 @@ export default function App() {
     }
   };
 
-  // REAL API Integration - Talks to Python/Ollama!
   const callBackend = async (message) => {
     try {
       const response = await fetch('http://localhost:8000/api/chat', {
@@ -49,14 +47,14 @@ export default function App() {
     setInput('');
     setIsLoading(true);
 
-    // Call the REAL backend
+    // Call the REAL LangGraph backend
     const response = await callBackend(userMessage);
     
     setIsLoading(false);
 
     if (response && response.routing_decision) {
       setPipelineState({
-        intent: response.intent,
+        tool: response.agent_tool,
         confidence: response.confidence,
         routing: response.routing_decision,
         workflow: response.workflow_state
@@ -73,7 +71,6 @@ export default function App() {
         { role: 'assistant', payload: response.workflow_state, type: 'widget' }
       ]);
     } else {
-      // If Python isn't running, it will show this error!
       setMessages([...newMessages, { role: 'assistant', text: "❌ Connection Error: Ensure your Python backend (main.py) is running on port 8000.", type: 'text' }]);
     }
   };
@@ -122,13 +119,15 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 p-4 md:p-8 font-sans flex flex-col md:flex-row gap-6">
+      
+      {/* LEFT: Chat UI */}
       <div className="flex-1 bg-white rounded-2xl shadow-xl overflow-hidden flex flex-col border border-slate-200">
         <div className="bg-[#280175] text-white p-4 flex justify-between items-center shadow-md z-10">
            <div className="flex items-center gap-3">
              <div className="w-8 h-8 bg-white rounded-full flex items-center justify-center">
                 <span className="text-[#280175] font-bold text-xs leading-none">SBI</span>
              </div>
-             <h1 className="font-bold text-lg text-white tracking-wider">YONO Deflection Agent</h1>
+             <h1 className="font-bold text-lg text-white tracking-wider">YONO Agentic AI</h1>
            </div>
         </div>
         
@@ -166,6 +165,7 @@ export default function App() {
         </form>
       </div>
       
+      {/* RIGHT: Agentic Dashboard UI */}
       <div className="w-full md:w-96 flex flex-col gap-4">
         <div className="bg-white rounded-2xl shadow-lg border p-5">
            <h3 className="text-sm font-bold text-slate-500 uppercase mb-4">Live Analytics</h3>
@@ -175,16 +175,36 @@ export default function App() {
            </div>
         </div>
         <div className="bg-white flex-1 rounded-2xl shadow-lg border p-5">
-          <h3 className="text-sm font-bold text-slate-500 uppercase mb-4">Architecture Pipeline</h3>
-          <div className="space-y-3">
-             <div className="text-xs text-slate-500 font-mono">Status: {pipelineState ? 'Connected' : 'Idle'}</div>
-             {pipelineState && (
-                <div className="text-sm border-l-4 border-blue-500 pl-3">
-                  <div>Intent: <span className="font-bold">{pipelineState.intent}</span></div>
-                  <div>Confidence: {(pipelineState.confidence * 100).toFixed(0)}%</div>
-                  <div>Route: {pipelineState.routing}</div>
-                </div>
-             )}
+          <h3 className="text-sm font-bold text-slate-500 uppercase mb-4">Agentic Architecture</h3>
+          <div className="space-y-4">
+             <div className="text-xs text-slate-500 font-mono">Status: {pipelineState ? 'Agent Connected' : 'Agent Idle'}</div>
+             
+             {/* Step 1: Agent Reasoning */}
+             <div className={`p-3 rounded-lg border transition-all ${pipelineState ? 'border-blue-300 bg-blue-50' : 'border-slate-100 bg-slate-50 opacity-50'}`}>
+               <div className="flex justify-between items-center mb-1">
+                 <span className="text-xs font-bold text-blue-800 flex items-center"><Cpu className="w-3 h-3 mr-1"/> 1. LLM Reasoning</span>
+               </div>
+               <div className="text-sm text-slate-600 font-mono">
+                 {pipelineState ? `Context Analyzed` : 'Awaiting input...'}
+               </div>
+            </div>
+
+            {/* Step 2: Tool Selection */}
+            <div className={`p-3 rounded-lg border transition-all ${pipelineState ? 'border-purple-300 bg-purple-50' : 'border-slate-100 bg-slate-50 opacity-50'}`}>
+               <div className="text-xs font-bold text-purple-800 mb-1 flex items-center"><Wrench className="w-3 h-3 mr-1"/> 2. Autonomous Tool Call</div>
+               <div className="text-sm text-slate-600 font-mono break-all">
+                 {pipelineState ? `${pipelineState.tool}()` : 'Evaluating tools...'}
+               </div>
+            </div>
+
+            {/* Step 3: Execution Engine */}
+            <div className={`p-3 rounded-lg border transition-all ${pipelineState ? 'border-emerald-300 bg-emerald-50' : 'border-slate-100 bg-slate-50 opacity-50'}`}>
+               <div className="text-xs font-bold text-emerald-800 mb-1 flex items-center"><Shield className="w-3 h-3 mr-1"/> 3. UI Action Routing</div>
+               <div className="text-sm text-slate-600 font-mono">
+                 {pipelineState ? pipelineState.routing : 'Ready...'}
+               </div>
+            </div>
+
           </div>
         </div>
       </div>
