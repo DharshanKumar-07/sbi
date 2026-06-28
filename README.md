@@ -2,7 +2,7 @@
  
 **Intelligent, Privacy-First Branch Traffic Management**
  
-The SBI YONO Deflection Agent is a full-stack, AI-driven solution designed to reduce physical branch congestion by intelligently routing customer queries to secure, digital self-serve workflows. Built specifically for high-scale banking environments, the system uses local LLM inference to ensure zero customer data exposure to third-party providers.
+The SBI YONO Deflection Agent is a full-stack, **agentic AI** solution designed to reduce physical branch congestion by autonomously routing customer queries to secure, digital self-serve workflows. Unlike keyword-based chatbots or hardcoded decision trees, this system uses a **ReAct Agent** (Reasoning + Acting loop) powered by a local LLM — giving it the ability to reason about customer intent, autonomously select the right banking tool, and orchestrate workflows without any programmed routing logic. Built specifically for high-scale banking environments, all inference runs on-premises to ensure zero customer data exposure to third-party providers.
  
 ---
  
@@ -14,10 +14,10 @@ SBI branches experience massive footfall for routine queries — balance checks,
  
 ## The Solution
  
-A **Traffic Deflection Engine** that:
+A **ReAct-based Agentic Traffic Deflection Engine** that:
  
-- Classifies complex, natural-language customer queries by intent
-- Orchestrates specific banking workflows based on the detected intent
+- Autonomously reasons about complex, natural-language customer queries using a ReAct loop
+- Selects the correct banking tool without any hardcoded routing logic
 - Deflects users to digital channels (YONO) before they ever step into a branch
 ---
  
@@ -58,8 +58,8 @@ Customer Query (Natural Language)
 |---|---|
 | Frontend | React.js, Tailwind CSS |
 | Backend | FastAPI (Python) |
-| AI / LLM | Llama 3 via Ollama |
-| Orchestration | LangChain, LangGraph |
+| AI / LLM | Llama 3.1 via Ollama |
+| Agent Framework | LangGraph ReAct Agent |
 | RAG / Vector Store | FAISS, LangChain Community |
 | Embeddings | HuggingFace, sentence-transformers |
 | Language | Python 3.10+, JavaScript |
@@ -138,4 +138,17 @@ sbi-yono-deflection-agent/
 ## Built For
  
 SBI Innovation Hackathon — submitted as a working prototype demonstrating how AI-powered digital deflection can reduce branch congestion at scale while maintaining strict data privacy compliance.
+ 
+---
+ 
+## Why This is Agentic AI
+ 
+Most banking bots rely on keyword matching and hardcoded `if/else` routing logic. This system is fundamentally different:
+ 
+- **ReAct Architecture** — The LLM runs a continuous Thought → Action → Observation loop via `create_react_agent`. It reasons about the query, picks a tool, reads the result, and formulates a response autonomously.
+- **No Hardcoded Routing** — There is zero programmed decision logic determining what the user wants. The agent reads each tool's description and independently decides which one to invoke.
+- **Autonomous Tool Selection** — Banking functions (statement generation, card freezing, KYC, policy lookup) are exposed as tools. The AI selects the right one based purely on the customer's natural language input.
+- **Dynamic Fallback** — If no tool fits the query, the agent autonomously escalates to a branch without any explicit fallback code — it reasons its way to that decision.
+- **RAG-Grounded Responses** — The `search_sbi_policies` tool queries a local FAISS vector store. The agent decides when to use it and what to retrieve, making it context-aware rather than just reactive.
+ 
 
