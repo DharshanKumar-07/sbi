@@ -80,7 +80,7 @@ Customer Query (Natural Language)
 pip install -r requirements.txt
  
 # Pull and run the Llama 3 model via Ollama
-ollama run llama3
+ollama run llama3.1
  
 # Start the FastAPI server
 uvicorn backend.main:app --reload
@@ -136,5 +136,6 @@ sbi-yono-deflection-agent/
 ---
  
 ## Built For
-
+ 
 SBI Innovation Hackathon — submitted as a working prototype demonstrating how AI-powered digital deflection can reduce branch congestion at scale while maintaining strict data privacy compliance.
+
