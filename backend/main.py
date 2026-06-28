@@ -4,8 +4,15 @@ from pydantic import BaseModel, Field
 from typing import Dict, Any
 import os
 
+# Modern LangChain & AI Imports (Bypassing langchain.chains entirely)
 from langchain_ollama import ChatOllama
 from langchain_core.prompts import PromptTemplate
+from langchain_community.vectorstores import FAISS
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_community.document_loaders import TextLoader
+from langchain_text_splitters import CharacterTextSplitter
+from langchain_core.runnables import RunnablePassthrough
+from langchain_core.output_parsers import StrOutputParser
 
 app = FastAPI(title="SBI Branch Deflection Assistant API")
 
@@ -17,7 +24,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- Data Models ---
+# --- Models ---
 class ChatRequest(BaseModel):
     message: str
     user_id: str = "mock-user-123"
@@ -29,30 +36,25 @@ class ChatResponse(BaseModel):
     workflow_state: Dict[str, Any]
     reply: str
 
-# --- 1. NEW: LLM Intent Classifier ---
 class IntentSchema(BaseModel):
-    """Schema forcing the LLM to output exact intent classifications."""
-    intent: str = Field(description="Must be exactly one of: statement, card_control, failed_transaction, kyc_help, or general_inquiry")
+    intent: str = Field(description="Must be exactly one of: statement, card_control, failed_transaction, kyc_help, conversational, or general_inquiry")
     confidence: float = Field(description="Confidence score between 0.0 and 1.0")
+
+# --- AI Engines ---
 
 class IntentClassifier:
     def __init__(self):
-        # Initialize Ollama pointing to your local instance
-        self.llm = ChatOllama(
-            model="llama3", 
-            temperature=0
-        ).with_structured_output(IntentSchema)
-        
+        self.llm = ChatOllama(model="llama3", temperature=0).with_structured_output(IntentSchema)
         self.prompt = PromptTemplate.from_template(
-            """You are the routing brain for SBI's digital deflection agent.
-            Analyze the user's message and classify their core intent.
+            """Analyze the user's message and classify their core intent.
             
             Categories:
-            - statement: Wants account history, passbook printing, or transaction records.
-            - card_control: Needs to block, freeze, unblock, or report a lost debit/credit card.
-            - failed_transaction: Reporting money deducted but not received, UPI failures, IMPS issues.
-            - kyc_help: Asking about account updates, address changes, or document requirements.
-            - general_inquiry: Anything else that requires complex human help or branch visits.
+            - statement: Account history, balance, transaction records.
+            - card_control: Block, freeze, unblock, lost card.
+            - failed_transaction: UPI failure, money deducted.
+            - kyc_help: Update address, document requirements.
+            - conversational: Greetings, 'thank you', 'hello'.
+            - general_inquiry: Anything requiring bank policy info (interest rates, FD tenures, branch hours).
             
             User Message: {message}"""
         )
@@ -60,93 +62,99 @@ class IntentClassifier:
     
     def classify(self, text: str) -> dict:
         try:
-            # Call the local Ollama model
             result = self.chain.invoke({"message": text})
             return {"intent": result.intent, "confidence": result.confidence}
         except Exception as e:
-            print(f"Ollama Routing Error: {e}")
+            print(f"Classification Error: {e}")
             return {"intent": "general_inquiry", "confidence": 0.3}
 
-# --- 2. Policy & Eligibility Engine ---
-class PolicyEngine:
-    def evaluate(self, intent: str, user_context: dict) -> str:
-        rules = {
-            "statement": "DIGITAL_SELF_SERVE",
-            "card_control": "DIGITAL_HIGH_AUTH",
-            "failed_transaction": "DIGITAL_ASSISTED",
-            "kyc_help": "DIGITAL_INFORMATIONAL",
-            "general_inquiry": "BRANCH_ESCALATION"
-        }
-        return rules.get(intent, "BRANCH_ESCALATION")
-
-# --- 3. Workflow Executor ---
-class WorkflowExecutor:
-    def execute(self, intent: str, routing: str) -> dict:
-        workflows = {
-            "statement": {
-                "type": "form_statement",
-                "action": "Generate E-Statement via YONO 2.0 API"
-            },
-            "card_control": {
-                "type": "secure_toggle",
-                "target": "Debit Card ending in 4012",
-                "action": "Require OTP to Freeze"
-            },
-            "failed_transaction": {
-                "type": "ticket_status",
-                "npc_timeline": "T+3 Days",
-                "action": "Raise Dispute"
-            },
-            "kyc_help": {
-                "type": "checklist",
-                "action": "Schedule Video KYC"
-            }
-        }
+class RAGEngine:
+    def __init__(self):
+        # Ensure 'data/sbi_policies.txt' exists!
+        if not os.path.exists("./data/sbi_policies.txt"):
+            os.makedirs("./data", exist_ok=True)
+            with open("./data/sbi_policies.txt", "w") as f:
+                f.write("SBI Savings Interest Rate is 2.70%. Min balance for Metro is 3000 INR. KYC requires PAN, Aadhaar, photos. Video KYC is available.")
         
-        if routing == "BRANCH_ESCALATION":
-            return {
-                "type": "escalation_ticket",
-                "summary": "User issue requires manual intervention.",
-                "action": "Generate Branch Token"
-            }
-            
-        return workflows.get(intent, {})
+        loader = TextLoader("./data/sbi_policies.txt")
+        docs = loader.load()
+        splitter = CharacterTextSplitter(chunk_size=500, chunk_overlap=50)
+        split_docs = splitter.split_documents(docs)
+        
+        # Local Embeddings
+        embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+        self.vectorstore = FAISS.from_documents(split_docs, embeddings)
+        self.retriever = self.vectorstore.as_retriever()
+        
+        # Modern LCEL Setup for RAG
+        self.llm = ChatOllama(model="llama3")
+        self.prompt = PromptTemplate.from_template(
+            "You are an SBI Assistant. Answer the question based strictly on the following context.\n\nContext: {context}\n\nQuestion: {question}"
+        )
 
-# --- Initialize Modules ---
+    def format_docs(self, docs):
+        return "\n\n".join(doc.page_content for doc in docs)
+
+    def get_answer(self, query: str):
+        # Modern LangChain Expression Language (LCEL) chain
+        qa_chain = (
+            {"context": self.retriever | self.format_docs, "question": RunnablePassthrough()}
+            | self.prompt
+            | self.llm
+            | StrOutputParser()
+        )
+        answer = qa_chain.invoke(query)
+        return {"result": answer}
+
+# --- Logic ---
+
 classifier = IntentClassifier()
-policy = PolicyEngine()
-workflow = WorkflowExecutor()
+rag = RAGEngine()
 
-# --- API Endpoints ---
 @app.post("/api/chat", response_model=ChatResponse)
 async def process_chat(request: ChatRequest):
-    try:
-        classification = classifier.classify(request.message)
-        intent = classification["intent"]
-        
-        mock_user_context = {"is_authenticated": True, "risk_score": "low"}
-        routing = policy.evaluate(intent, mock_user_context)
-        
-        workflow_data = workflow.execute(intent, routing)
-        
+    # 1. Classify
+    classif = classifier.classify(request.message)
+    intent = classif["intent"]
+    
+    # 2. Logic handling
+    reply = ""
+    workflow_data = {}
+    routing = "BRANCH_ESCALATION"
+
+    if intent == "conversational":
+        reply = "I'm happy to help! Let me know if you have any questions about SBI services."
+        routing = "DIGITAL_INFORMATIONAL"
+    elif intent == "general_inquiry":
+        res = rag.get_answer(request.message)
+        reply = res["result"]
+        routing = "DIGITAL_INFORMATIONAL"
+    else:
+        # Mapping intent to standard workflows
+        routing = "DIGITAL_SELF_SERVE" if intent in ["statement", "kyc_help"] else "DIGITAL_HIGH_AUTH"
         replies = {
-            "statement": "I can help you get your account statement instantly without visiting a branch. Please select the date range below.",
-            "card_control": "I understand you need to manage your debit card. We can secure it right now digitally. Please confirm the action below.",
-            "failed_transaction": "Failed UPI transactions usually settle within 3 days. Let's fetch your recent transactions to raise a dispute.",
-            "kyc_help": "You don't need to visit a branch to update your KYC! Here is what you need for Video KYC.",
-            "general_inquiry": "This request might require specialized assistance. I've prepared a summary ticket so our branch staff knows exactly what you need when you arrive."
+            "statement": "I can help you get your account statement instantly.",
+            "card_control": "I understand you need to manage your debit card.",
+            "failed_transaction": "Failed UPI transactions usually settle within 3 days.",
+            "kyc_help": "You can update your KYC from home using V-KYC."
         }
+        reply = replies.get(intent, "I can assist you with that.")
         
-        return ChatResponse(
-            intent=intent,
-            confidence=classification["confidence"],
-            routing_decision=routing,
-            workflow_state=workflow_data,
-            reply=replies.get(intent, "I can help route this to the right team.")
-        )
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        # Setup workflow card
+        workflows = {
+            "statement": {"type": "form_statement"},
+            "card_control": {"type": "secure_toggle", "target": "Debit Card ending 4012"},
+            "kyc_help": {"type": "checklist"}
+        }
+        workflow_data = workflows.get(intent, {"type": "escalation_ticket"})
+
+    return ChatResponse(
+        intent=intent,
+        confidence=classif["confidence"],
+        routing_decision=routing,
+        workflow_state=workflow_data,
+        reply=reply
+    )
 
 if __name__ == "__main__":
     import uvicorn

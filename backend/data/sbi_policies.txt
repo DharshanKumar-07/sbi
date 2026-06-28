@@ -1,0 +1,51 @@
+STATE BANK OF INDIA - GENERAL POLICIES AND INFORMATION KNOWLEDGE BASE
+
+1. Savings & Current Accounts
+
+Savings Account Interest Rate: 2.70% per annum for balances up to Rs. 10 Crores. 3.00% for balances above Rs. 10 Crores.
+
+Minimum Average Balance (MAB): MAB criteria has been waived off. There is NIL minimum balance requirement for all regular Savings Bank Accounts.
+
+Cash Deposit Limit: Free cash deposit up to 3 transactions in a month. Beyond 3 transactions, Rs. 50 + GST per transaction is charged.
+
+2. Fixed Deposits (Term Deposits)
+
+Retail Domestic Term Deposit Rates (Under Rs. 2 Crore):
+
+7 days to 45 days: 3.50% p.a.
+
+1 Year to less than 2 years: 6.80% p.a.
+
+2 years to less than 3 years: 7.00% p.a.
+
+Senior Citizens Privilege: Senior Citizens receive an additional interest rate of 0.50% across all tenures.
+
+SBI WECARE Deposit: An additional 0.50% premium (over the existing 0.50% for senior citizens) is paid to Senior Citizen on retail TD for '5 Years and above' tenor.
+
+3. Retail Loans
+
+Home Loans: Interest rates start from 8.50% p.a. based on CIBIL score. Processing fee is typically 0.35% of the loan amount plus applicable GST. Maximum tenure is 30 years.
+
+Auto Loans: Interest rates start at 8.75% p.a. calculated on a daily reducing balance basis. Zero advance EMI required.
+
+Personal Loans (Xpress Credit): Available for salary account holders. Rates start from 11.15% p.a. Maximum loan amount is Rs. 20 Lakhs or 24 times NMI.
+
+4. KYC & Account Opening Guidelines
+
+Accepted OVDs (Officially Valid Documents): Passport, Driving License, Proof of possession of Aadhaar number, Voter's Identity Card, NREGA Job Card, and letter issued by the National Population Register.
+
+Video Life Certificate (VLC): Pensioners can submit their life certificate via Video Call without visiting the branch.
+
+Video KYC (V-KYC): Available for opening new digital savings accounts. Customers require a smartphone with a camera, stable internet, original PAN card, physical Aadhaar number, and a blank white paper with a blue/black pen for signature capture.
+
+5. Digital & Card Services
+
+UPI Transaction Limits: Maximum Rs. 1,00,000 per day. Maximum of 20 UPI transactions allowed in a 24-hour period.
+
+YONO Quick Transfer: Fund transfer limit per day using Quick Transfer (without adding as a beneficiary) is Rs. 25,000.
+
+Lost/Stolen Debit Card: Must be blocked immediately via the YONO app, Internet Banking, SMS ('BLOCK XXXX' to 567676), or by calling Toll-Free 1800 1234.
+
+Card Replacement: The fee for replacing a lost or damaged debit card is Rs. 300 + GST.
+
+IMPS Charges: No charges for IMPS transactions up to Rs. 5 Lakhs done through YONO or Internet Banking..
