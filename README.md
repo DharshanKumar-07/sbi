@@ -73,6 +73,7 @@ Customer Query (Natural Language)
 - Node.js installed
 - Python 3.10 or higher
 - Ollama installed and running
+- Setup Virtual Environment
 ### 1. Backend Setup
  
 ```bash
