@@ -4,7 +4,7 @@ from pydantic import BaseModel, Field
 from typing import Dict, Any
 import os
 
-# Modern LangChain & AI Imports (Bypassing langchain.chains entirely)
+# Modern LangChain & AI Imports
 from langchain_ollama import ChatOllama
 from langchain_core.prompts import PromptTemplate
 from langchain_community.vectorstores import FAISS
@@ -37,7 +37,7 @@ class ChatResponse(BaseModel):
     reply: str
 
 class IntentSchema(BaseModel):
-    intent: str = Field(description="Must be exactly one of: statement, card_control, failed_transaction, kyc_help, conversational, or general_inquiry")
+    intent: str = Field(description="Must be exactly one of: statement, card_control, failed_transaction, kyc_help, conversational, general_inquiry, or branch_request")
     confidence: float = Field(description="Confidence score between 0.0 and 1.0")
 
 # --- AI Engines ---
@@ -55,6 +55,7 @@ class IntentClassifier:
             - kyc_help: Update address, document requirements.
             - conversational: Greetings, 'thank you', 'hello'.
             - general_inquiry: Anything requiring bank policy info (interest rates, FD tenures, branch hours).
+            - branch_request: Explicitly asking for human help, branch manager, or a complex issue.
             
             User Message: {message}"""
         )
@@ -66,11 +67,10 @@ class IntentClassifier:
             return {"intent": result.intent, "confidence": result.confidence}
         except Exception as e:
             print(f"Classification Error: {e}")
-            return {"intent": "general_inquiry", "confidence": 0.3}
+            return {"intent": "branch_request", "confidence": 0.2}
 
 class RAGEngine:
     def __init__(self):
-        # Ensure 'data/sbi_policies.txt' exists!
         if not os.path.exists("./data/sbi_policies.txt"):
             os.makedirs("./data", exist_ok=True)
             with open("./data/sbi_policies.txt", "w") as f:
@@ -81,12 +81,10 @@ class RAGEngine:
         splitter = CharacterTextSplitter(chunk_size=500, chunk_overlap=50)
         split_docs = splitter.split_documents(docs)
         
-        # Local Embeddings
         embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
         self.vectorstore = FAISS.from_documents(split_docs, embeddings)
         self.retriever = self.vectorstore.as_retriever()
         
-        # Modern LCEL Setup for RAG
         self.llm = ChatOllama(model="llama3")
         self.prompt = PromptTemplate.from_template(
             "You are an SBI Assistant. Answer the question based strictly on the following context.\n\nContext: {context}\n\nQuestion: {question}"
@@ -96,7 +94,6 @@ class RAGEngine:
         return "\n\n".join(doc.page_content for doc in docs)
 
     def get_answer(self, query: str):
-        # Modern LangChain Expression Language (LCEL) chain
         qa_chain = (
             {"context": self.retriever | self.format_docs, "question": RunnablePassthrough()}
             | self.prompt
@@ -116,41 +113,50 @@ async def process_chat(request: ChatRequest):
     # 1. Classify
     classif = classifier.classify(request.message)
     intent = classif["intent"]
+    confidence = classif["confidence"]
     
     # 2. Logic handling
     reply = ""
     workflow_data = {}
-    routing = "BRANCH_ESCALATION"
+    routing = "BRANCH_ESCALATION" # Default
 
-    if intent == "conversational":
+    # AI Safeguard: If AI is confused, safely escalate!
+    if confidence < 0.60 or intent == "branch_request":
+        intent = "branch_request" if confidence >= 0.60 else "complex_query"
+        reply = "This looks like a complex request. I've prepared a summary so our branch staff can assist you quickly without you having to repeat yourself."
+        routing = "BRANCH_ESCALATION"
+        workflow_data = {"type": "escalation_ticket"}
+        
+    elif intent == "conversational":
         reply = "I'm happy to help! Let me know if you have any questions about SBI services."
         routing = "DIGITAL_INFORMATIONAL"
+        
     elif intent == "general_inquiry":
         res = rag.get_answer(request.message)
         reply = res["result"]
         routing = "DIGITAL_INFORMATIONAL"
+        
     else:
-        # Mapping intent to standard workflows
+        # Mapping standard digital workflows
         routing = "DIGITAL_SELF_SERVE" if intent in ["statement", "kyc_help"] else "DIGITAL_HIGH_AUTH"
         replies = {
             "statement": "I can help you get your account statement instantly.",
             "card_control": "I understand you need to manage your debit card.",
-            "failed_transaction": "Failed UPI transactions usually settle within 3 days.",
+            "failed_transaction": "Failed UPI transactions usually settle within 3 days. Let's check your status.",
             "kyc_help": "You can update your KYC from home using V-KYC."
         }
-        reply = replies.get(intent, "I can assist you with that.")
+        reply = replies.get(intent, "I can assist you with that digitally.")
         
-        # Setup workflow card
         workflows = {
             "statement": {"type": "form_statement"},
             "card_control": {"type": "secure_toggle", "target": "Debit Card ending 4012"},
             "kyc_help": {"type": "checklist"}
         }
-        workflow_data = workflows.get(intent, {"type": "escalation_ticket"})
+        workflow_data = workflows.get(intent, {})
 
     return ChatResponse(
         intent=intent,
-        confidence=classif["confidence"],
+        confidence=confidence,
         routing_decision=routing,
         workflow_state=workflow_data,
         reply=reply
